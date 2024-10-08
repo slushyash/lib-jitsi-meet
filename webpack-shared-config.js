@@ -52,10 +52,9 @@ module.exports = (minimize, analyzeBundle) => {
                                 // done unnecessarily. For browsers not specified
                                 // here, the ES2015+ profile will be used.
                                 targets: {
-                                    chrome: 80,
-                                    electron: 10,
-                                    firefox: 68,
-                                    safari: 14
+                                    chrome: '120',
+                                    firefox: '120',
+                                    safari: '17'
                                 }
                             }
                         ],

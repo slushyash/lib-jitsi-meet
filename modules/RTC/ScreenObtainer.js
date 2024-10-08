@@ -64,15 +64,12 @@ const ScreenObtainer = {
      * @returns {Object|boolean}
      */
     _getAudioConstraints() {
-        const { audioQuality } = this.options;
-        const audio = audioQuality?.stereo ? {
+        return {
             autoGainControl: false,
             channelCount: 2,
             echoCancellation: false,
             noiseSuppression: false
-        } : true;
-
-        return audio;
+        };
     },
 
     /**

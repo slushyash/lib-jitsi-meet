@@ -1039,34 +1039,48 @@ export default class ChatRoom extends Listenable {
             throw new Error('Reactions must be an array');
         }
 
-        // Validate each reaction is a valid emoji
-        const validReactions = [];
+        // Extract valid emojis from each reaction
+        const validReactions = reactions
+            .map(reaction => {
+                const m = reaction.match(EMOJI_REGEX);
 
-        for (const reaction of reactions) {
-            const m = reaction.match(EMOJI_REGEX);
+                return m && m[0];
+            })
+            .filter(Boolean);
 
-            if (!m || !m[0]) {
-                throw new Error(`Invalid reaction: ${reaction}`);
-            }
-            validReactions.push(m[0]);
+        // If no valid reactions were found and the original array wasn't empty, throw error
+        if (reactions.length > 0 && validReactions.length === 0) {
+            throw new Error('No valid emojis found in reactions');
         }
 
         // Create message with appropriate 'to' attribute
-        const msg = receiverId ? $msg({ to: `${this.roomjid}/${receiverId}`,
-            type: 'chat' }) : $msg({ to: this.roomjid,
-            type: 'groupchat' });
+        const msg = receiverId
+            ? $msg({ to: `${this.roomjid}/${receiverId}`, type: 'chat' })
+            : $msg({ to: this.roomjid,
+                type: 'groupchat' });
 
-        // Add reactions element
-        const reactionsEl = msg.c('reactions', { id: messageId,
-            xmlns: 'urn:xmpp:reactions:0' });
+        const stanzaNodes = [
+            {
+                tagName: 'reactions',
+                attributes: { id: messageId,
+                    xmlns: 'urn:xmpp:reactions:0' },
+                children: validReactions.map(reaction => {
+                    return {
+                        tagName: 'reaction',
+                        attributes: {},
+                        value: reaction,
+                        children: []
+                    };
+                })
+            },
+            {
+                tagName: 'store',
+                attributes: { xmlns: 'urn:xmpp:hints' },
+                children: []
+            }
+        ];
 
-        // Add each reaction as a child element
-        for (const reaction of validReactions) {
-            reactionsEl.c('reaction', {}, reaction).up();
-        }
-
-        // Add store hint
-        reactionsEl.up().c('store', { xmlns: 'urn:xmpp:hints' });
+        parser.json2packet(stanzaNodes, msg);
 
         this.connection.send(msg);
     }

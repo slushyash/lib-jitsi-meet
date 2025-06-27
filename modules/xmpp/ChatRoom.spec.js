@@ -493,7 +493,11 @@ describe('ChatRoom', () => {
             const msg = new DOMParser().parseFromString(msgStr, 'text/xml').documentElement;
 
             room.onMessage(msg, 'fromjid');
-            expect(emitterSpy.calls.count()).toEqual(0);
+            expect(emitterSpy).toHaveBeenCalledWith(
+                XMPPEvents.REACTION_RECEIVED,
+                'fromjid',
+                [],
+                'mdgId123');
         });
     });
 
@@ -542,6 +546,79 @@ describe('ChatRoom', () => {
         });
         it('throws in case of invalid or no emoji', () => {
             expect(() => room.sendReaction('foo bar baz', 'mdgId123', 'participant1')).toThrowError(/Invalid reaction/);
+        });
+    });
+
+    describe('sendReactions', () => {
+        let room;
+        let connectionSpy;
+
+        beforeEach(() => {
+            const xmpp = {
+                moderator: new Moderator({
+                    options: {}
+                }),
+                options: {},
+                addListener: () => {} // eslint-disable-line no-empty-function
+            };
+
+            room = new ChatRoom(
+                // eslint-disable-next-line no-empty-function
+                { send: () => {} } /* connection */,
+                'jid',
+                'password',
+                xmpp,
+                {} /* options */);
+            connectionSpy = spyOn(room.connection, 'send');
+        });
+        it('sends multiple valid emoji reactions', () => {
+            room.sendReactions(['👍', '👎'], 'mdgId123', 'participant1');
+            expect(connectionSpy.calls.argsFor(0).toString()).toBe(
+                '<message to="jid/participant1" type="chat" xmlns="jabber:client">' +
+                '<reactions id="mdgId123" xmlns="urn:xmpp:reactions:0">' +
+                '<reaction>👍</reaction><reaction>👎</reaction>' +
+                '</reactions>' +
+                '<store xmlns="urn:xmpp:hints"/></message>');
+        });
+        it('sends empty reactions to clear all', () => {
+            room.sendReactions([], 'mdgId123', 'participant1');
+            expect(connectionSpy.calls.argsFor(0).toString()).toBe(
+                '<message to="jid/participant1" type="chat" xmlns="jabber:client">' +
+                '<reactions id="mdgId123" xmlns="urn:xmpp:reactions:0"/>' +
+                '<store xmlns="urn:xmpp:hints"/></message>');
+        });
+        it('filters out invalid reactions', () => {
+            room.sendReactions(['👍', 'foo bar', '👎'], 'mdgId123', 'participant1');
+            expect(connectionSpy.calls.argsFor(0).toString()).toBe(
+                '<message to="jid/participant1" type="chat" xmlns="jabber:client">' +
+                '<reactions id="mdgId123" xmlns="urn:xmpp:reactions:0">' +
+                '<reaction>👍</reaction><reaction>👎</reaction>' +
+                '</reactions>' +
+                '<store xmlns="urn:xmpp:hints"/></message>');
+        });
+        it('extracts emojis from text', () => {
+            room.sendReactions(['I like this 👍', '👎 not so much'], 'mdgId123', 'participant1');
+            expect(connectionSpy.calls.argsFor(0).toString()).toBe(
+                '<message to="jid/participant1" type="chat" xmlns="jabber:client">' +
+                '<reactions id="mdgId123" xmlns="urn:xmpp:reactions:0">' +
+                '<reaction>👍</reaction><reaction>👎</reaction>' +
+                '</reactions>' +
+                '<store xmlns="urn:xmpp:hints"/></message>');
+        });
+        it('handles group chat messages without receiverId', () => {
+            room.sendReactions(['👍'], 'mdgId123');
+            expect(connectionSpy.calls.argsFor(0).toString()).toBe(
+                '<message to="jid" type="groupchat" xmlns="jabber:client">' +
+                '<reactions id="mdgId123" xmlns="urn:xmpp:reactions:0">' +
+                '<reaction>👍</reaction>' +
+                '</reactions>' +
+                '<store xmlns="urn:xmpp:hints"/></message>');
+        });
+        it('throws if reactions is not an array', () => {
+            expect(() => room.sendReactions('👍', 'mdgId123', 'participant1')).toThrowError(/Reactions must be an array/);
+        });
+        it('throws if all reactions are invalid', () => {
+            expect(() => room.sendReactions(['foo', 'bar'], 'mdgId123', 'participant1')).toThrowError(/No valid emojis found in reactions/);
         });
     });
 });

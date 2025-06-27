@@ -1010,6 +1010,17 @@ export default class JitsiConference {
     }
 
     /**
+   * Clears all reactions from a message.
+   * @param {string} messageId - The ID of the message to clear reactions from.
+   * @param {string} receiverId - The intended recipient, if the message is private.
+   */
+    clearReactions(messageId, receiverId) {
+        if (this.room) {
+            this.room.clearReactions(messageId, receiverId);
+        }
+    }
+
+    /**
    * Sends private text message to another participant of the conference.
    * @param {string} id - The ID of the participant to send a private message.
    * @param {string} message - The text message.

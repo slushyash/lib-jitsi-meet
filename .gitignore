@@ -5,7 +5,6 @@ node_modules
 .*.tmp
 deploy-local.sh
 .remote-sync.json
-lib-jitsi-meet.*
 npm-*.log
 .sync-config.cson
 .jshintignore
@@ -13,8 +12,8 @@ npm-*.log
 .DS_Store
 stats.json
 .vscode
-dist
 docs
+dist/esm
 index.d.ts
 types/auto
 types/types-comparer/auto.json

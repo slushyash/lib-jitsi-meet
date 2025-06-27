@@ -1008,6 +1008,25 @@ export default class ChatRoom extends Listenable {
         this.connection.send(msg);
     }
 
+    /**
+     * Clears all reactions from a message.
+     * @param {string} messageId - The id of the message to clear reactions from.
+     * @param {string} receiverId - The receiver of the message if it is private.
+     */
+    clearReactions(messageId, receiverId) {
+        // Adds the 'to' attribute depending on if the message is private or not.
+        const msg = receiverId ? $msg({ to: `${this.roomjid}/${receiverId}`,
+            type: 'chat' }) : $msg({ to: this.roomjid,
+            type: 'groupchat' });
+
+        // Send empty reactions element to clear all reactions
+        msg.c('reactions', { id: messageId,
+            xmlns: 'urn:xmpp:reactions:0' })
+            .up().c('store', { xmlns: 'urn:xmpp:hints' });
+
+        this.connection.send(msg);
+    }
+
     /* eslint-disable max-params */
     /**
      * Send private text message to another participant of the conference
@@ -1209,10 +1228,11 @@ export default class ChatRoom extends Listenable {
             return true;
         }
 
-        const reactions = $(msg).find('>[xmlns="urn:xmpp:reactions:0"]>reaction');
+        const reactionsElement = $(msg).find('>[xmlns="urn:xmpp:reactions:0"]');
 
-        if (reactions.length > 0) {
-            const messageId = $(msg).find('>[xmlns="urn:xmpp:reactions:0"]').attr('id');
+        if (reactionsElement.length > 0) {
+            const messageId = reactionsElement.attr('id');
+            const reactions = reactionsElement.find('>reaction');
             const reactionList = [];
 
             reactions.each((_, reactionElem) => {
@@ -1225,9 +1245,8 @@ export default class ChatRoom extends Listenable {
                 }
             });
 
-            if (reactionList.length > 0) {
-                this.eventEmitter.emit(XMPPEvents.REACTION_RECEIVED, from, reactionList, messageId);
-            }
+            // Emit the event with the reaction list (empty array means clear all reactions)
+            this.eventEmitter.emit(XMPPEvents.REACTION_RECEIVED, from, reactionList, messageId);
 
             return true;
         }

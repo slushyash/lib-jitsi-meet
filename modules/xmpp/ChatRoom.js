@@ -1027,6 +1027,50 @@ export default class ChatRoom extends Listenable {
         this.connection.send(msg);
     }
 
+    /**
+     * Sends multiple reactions to a message, or clears all reactions if array is empty.
+     * @param {Array<string>} reactions - Array of emoji reactions. Empty array clears all reactions.
+     * @param {string} messageId - The id of the message to react to.
+     * @param {string} receiverId - The receiver of the message if it is private.
+     */
+    sendReactions(reactions, messageId, receiverId) {
+        // Validate reactions array
+        if (!Array.isArray(reactions)) {
+            throw new Error('Reactions must be an array');
+        }
+
+        // Validate each reaction is a valid emoji
+        const validReactions = [];
+
+        for (const reaction of reactions) {
+            const m = reaction.match(EMOJI_REGEX);
+
+            if (!m || !m[0]) {
+                throw new Error(`Invalid reaction: ${reaction}`);
+            }
+            validReactions.push(m[0]);
+        }
+
+        // Create message with appropriate 'to' attribute
+        const msg = receiverId ? $msg({ to: `${this.roomjid}/${receiverId}`,
+            type: 'chat' }) : $msg({ to: this.roomjid,
+            type: 'groupchat' });
+
+        // Add reactions element
+        const reactionsEl = msg.c('reactions', { id: messageId,
+            xmlns: 'urn:xmpp:reactions:0' });
+
+        // Add each reaction as a child element
+        for (const reaction of validReactions) {
+            reactionsEl.c('reaction', {}, reaction).up();
+        }
+
+        // Add store hint
+        reactionsEl.up().c('store', { xmlns: 'urn:xmpp:hints' });
+
+        this.connection.send(msg);
+    }
+
     /* eslint-disable max-params */
     /**
      * Send private text message to another participant of the conference

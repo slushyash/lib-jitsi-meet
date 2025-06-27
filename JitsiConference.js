@@ -1021,6 +1021,18 @@ export default class JitsiConference {
     }
 
     /**
+   * Sends multiple reactions to a message, or clears all reactions if array is empty.
+   * @param {Array<string>} reactions - Array of emoji reactions. Empty array clears all reactions.
+   * @param {string} messageId - The ID of the message to react to.
+   * @param {string} receiverId - The intended recipient, if the message is private.
+   */
+    sendReactions(reactions, messageId, receiverId) {
+        if (this.room) {
+            this.room.sendReactions(reactions, messageId, receiverId);
+        }
+    }
+
+    /**
    * Sends private text message to another participant of the conference.
    * @param {string} id - The ID of the participant to send a private message.
    * @param {string} message - The text message.

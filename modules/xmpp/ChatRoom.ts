@@ -1171,6 +1171,83 @@ export default class ChatRoom extends Listenable {
         this.connection.send(msg);
     }
 
+    /**
+     * Clears all reactions from a message.
+     * @param {string} messageId - The id of the message to clear reactions from.
+     * @param {string} receiverId - The receiver of the message if it is private.
+     */
+    public clearReactions(messageId: string, receiverId?: string): void {
+        // Adds the 'to' attribute depending on if the message is private or not.
+        const msg = receiverId ? $msg({ to: `${this.roomjid}/${receiverId}`,
+            type: 'chat' }) : $msg({ to: this.roomjid,
+            type: 'groupchat' });
+
+        // Send empty reactions element to clear all reactions
+        msg.c('reactions', { id: messageId,
+            xmlns: 'urn:xmpp:reactions:0' })
+            .up().c('store', { xmlns: 'urn:xmpp:hints' });
+
+        this.connection.send(msg);
+    }
+
+    /**
+     * Sends multiple reactions to a message, or clears all reactions if array is empty.
+     * @param {Array<string>} reactions - Array of emoji reactions. Empty array clears all reactions.
+     * @param {string} messageId - The id of the message to react to.
+     * @param {string} receiverId - The receiver of the message if it is private.
+     */
+    public sendReactions(reactions: string[], messageId: string, receiverId?: string): void {
+        // Validate reactions array
+        if (!Array.isArray(reactions)) {
+            throw new Error('Reactions must be an array');
+        }
+
+        // Extract valid emojis from each reaction
+        const validReactions = reactions
+            .map(reaction => {
+                const m = reaction.match(EMOJI_REGEX);
+
+                return m && m[0];
+            })
+            .filter(Boolean) as string[];
+
+        // If no valid reactions were found and the original array wasn't empty, throw error
+        if (reactions.length > 0 && validReactions.length === 0) {
+            throw new Error('No valid emojis found in reactions');
+        }
+
+        // Create message with appropriate 'to' attribute
+        const msg = receiverId
+            ? $msg({ to: `${this.roomjid}/${receiverId}`, type: 'chat' })
+            : $msg({ to: this.roomjid,
+                type: 'groupchat' });
+
+        const stanzaNodes: IPresenceNode[] = [
+            {
+                tagName: 'reactions',
+                attributes: { id: messageId,
+                    xmlns: 'urn:xmpp:reactions:0' },
+                children: validReactions.map(reaction => {
+                    return {
+                        tagName: 'reaction',
+                        attributes: {},
+                        value: reaction,
+                        children: []
+                    };
+                })
+            },
+            {
+                tagName: 'store',
+                attributes: { xmlns: 'urn:xmpp:hints' },
+                children: []
+            }
+        ];
+
+        parser.json2packet(stanzaNodes, msg);
+
+        this.connection.send(msg);
+    }
+
     /* eslint-disable max-params */
     /**
      * Send private text message to another participant of the conference
@@ -1369,11 +1446,12 @@ export default class ChatRoom extends Listenable {
             return true;
         }
 
-        const reactions = findAll(msg, ':scope>[*|xmlns="urn:xmpp:reactions:0"]>reaction');
+        const reactionsElement = findFirst(msg, ':scope>[*|xmlns="urn:xmpp:reactions:0"]');
 
-        if (reactions.length > 0) {
-            const messageId = getAttribute(findFirst(msg, ':scope>[*|xmlns="urn:xmpp:reactions:0"]'), 'id');
-            const reactionList = [];
+        if (reactionsElement) {
+            const messageId = getAttribute(reactionsElement, 'id');
+            const reactions = findAll(reactionsElement, ':scope>reaction');
+            const reactionList: string[] = [];
 
             reactions.forEach(reactionElem => {
                 const reaction = getText(reactionElem);
@@ -1385,9 +1463,8 @@ export default class ChatRoom extends Listenable {
                 }
             });
 
-            if (reactionList.length > 0) {
-                this.eventEmitter.emit(XMPPEvents.REACTION_RECEIVED, from, reactionList, messageId);
-            }
+            // Emit the event with the reaction list (empty array means clear all reactions)
+            this.eventEmitter.emit(XMPPEvents.REACTION_RECEIVED, from, reactionList, messageId);
 
             return true;
         }

@@ -13,7 +13,7 @@ npm-*.log
 .DS_Store
 stats.json
 .vscode
-dist
+dist/esm
 docs
 index.d.ts
 types/auto

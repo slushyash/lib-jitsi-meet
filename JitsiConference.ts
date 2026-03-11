@@ -90,6 +90,16 @@ export interface IConferenceOptions {
             rtcstatsEnabled?: boolean;
             rtcstatsEndpoint?: string;
         };
+        audioQuality?: {
+            enableOpusDtx?: boolean;
+            opusMaxAverageBitrate?: number;
+            stereo?: boolean;
+        };
+        audioShareAudioQuality?: {
+            enableOpusDtx?: boolean;
+            opusMaxAverageBitrate?: number;
+            stereo?: boolean;
+        };
         applicationName?: string;
         avgRtpStatsN?: number;
         channelLastN?: number;

@@ -91,6 +91,16 @@ interface IJitsiMeetJSOptions {
         rtcstatsLogFlushSizeBytes?: number;
         rtcstatsStoreLogs?: boolean;
     };
+    audioQuality?: {
+        enableOpusDtx?: boolean;
+        opusMaxAverageBitrate?: number;
+        stereo?: boolean;
+    };
+    audioShareAudioQuality?: {
+        enableOpusDtx?: boolean;
+        opusMaxAverageBitrate?: number;
+        stereo?: boolean;
+    };
     audioLevelsInterval?: number;
     desktopSharingSources?: Array<desktopSharingSourceType>;
     disableAudioLevels?: boolean;

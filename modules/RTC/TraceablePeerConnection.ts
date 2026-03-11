@@ -1,6 +1,6 @@
 import { getLogger } from '@jitsi/logger';
 import { cloneDeep } from 'lodash-es';
-import transform from 'sdp-transform';
+import transform, { type SessionDescription } from 'sdp-transform';
 
 import { CodecMimeType } from '../../service/RTC/CodecMimeType';
 import { MediaDirection } from '../../service/RTC/MediaDirection';
@@ -84,6 +84,7 @@ export interface ITPCSourceInfo {
 
 export interface ITPCOptions {
     audioQuality: IAudioQuality;
+    audioShareAudioQuality?: IAudioQuality;
     capScreenshareBitrate: boolean;
     codecSettings: ICodecSettings;
     disableRtx: boolean;
@@ -878,7 +879,7 @@ export default class TraceablePeerConnection {
         this.trace('RTCSessionDescription::preTransform', TraceablePeerConnection.dumpSDP(description));
         let mungedSdp = transform.parse(description?.sdp);
 
-        mungedSdp = this.tpcUtils.mungeOpus(mungedSdp);
+        mungedSdp = this.tpcUtils.mungeOpus(mungedSdp, this._getLocalAudioQualityByMLine(mungedSdp));
         mungedSdp = this.tpcUtils.mungeCodecOrder(mungedSdp);
         mungedSdp = this.tpcUtils.setMaxBitrates(mungedSdp, true);
         const mungedDescription = new RTCSessionDescription({
@@ -889,6 +890,55 @@ export default class TraceablePeerConnection {
         this.trace('RTCSessionDescription::postTransform', TraceablePeerConnection.dumpSDP(mungedDescription));
 
         return mungedDescription;
+    }
+
+    /**
+     * Builds the outbound audio quality policy per local audio m-line.
+     *
+     * @param {SessionDescription} parsedSdp - The local description to inspect.
+     * @returns {Array<IAudioQuality | undefined>}
+     */
+    private _getLocalAudioQualityByMLine(parsedSdp: SessionDescription): Array<IAudioQuality | undefined> {
+        const audioMlines = parsedSdp.media.filter(m => m.type === MediaType.AUDIO);
+
+        if (!audioMlines.length) {
+            return [];
+        }
+
+        const audioQualitiesByMLine = new Array<IAudioQuality | undefined>(audioMlines.length).fill(undefined);
+
+        for (const localTrack of this.localTracks.values()) {
+            if (!localTrack.isAudioTrack()) {
+                continue;
+            }
+
+            const audioQuality = localTrack.sourceType
+                ? (this.options.audioShareAudioQuality ?? this.options.audioQuality)
+                : this.options.audioQuality;
+
+            if (!audioQuality) {
+                continue;
+            }
+
+            const transceiverMid = this.localTrackTransceiverMids.get(localTrack.rtcId);
+            let audioMLineIndex = transceiverMid
+                ? audioMlines.findIndex(mLine => mLine.mid?.toString() === transceiverMid)
+                : -1;
+
+            if (audioMLineIndex === -1) {
+                const sourceName = localTrack.getSourceName();
+
+                if (sourceName) {
+                    audioMLineIndex = getSourceIndexFromSourceName(sourceName);
+                }
+            }
+
+            if (audioMLineIndex >= 0 && audioMLineIndex < audioQualitiesByMLine.length) {
+                audioQualitiesByMLine[audioMLineIndex] = audioQuality;
+            }
+        }
+
+        return audioQualitiesByMLine;
     }
 
 

@@ -132,6 +132,7 @@ interface IDisplayMediaConstraints {
  */
 interface IScreenObtainerOptions {
     audioQuality?: IAudioQuality;
+    audioShareAudioQuality?: IAudioQuality;
     desktopSharingFrameRate?: IFrameRateConfig;
     desktopSharingResolution?: IResolutionConfig;
     desktopSharingSources?: string[];
@@ -220,7 +221,7 @@ class ScreenObtainer {
      * @returns {IAudioQuality | boolean}
      */
     private _getAudioConstraints(): boolean | IAudioQuality {
-        const { audioQuality } = this.options;
+        const audioQuality = this.options.audioShareAudioQuality ?? this.options.audioQuality;
         const isTestModeEnabled = this.options.testing?.testMode;
 
         // Chrome 140+ requires 'restrictOwnAudio' for proper audio sharing when not using stereo.

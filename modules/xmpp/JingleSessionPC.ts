@@ -108,6 +108,7 @@ function _addSourceElement(description: any, s: any, ssrc_: number, msid: string
  */
 interface IJingleSessionPCOptions {
     audioQuality?: IAudioQuality;
+    audioShareAudioQuality?: IAudioQuality;
     channelLastN?: number;
     codecSettings?: CodecMimeType[];
     desktopSharingFrameRate?: {
@@ -1570,6 +1571,7 @@ export default class JingleSessionPC extends JingleSession {
 
         const pcOptions = {
             audioQuality: options.audioQuality,
+            audioShareAudioQuality: options.audioShareAudioQuality,
             capScreenshareBitrate: undefined,
             codecSettings: options.codecSettings,
             disableRtx: options.disableRtx,

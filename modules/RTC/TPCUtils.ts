@@ -831,22 +831,40 @@ export class TPCUtils {
      * @returns {SessionDescription} the munged SDP.
      * @internal
      */
-    mungeOpus(parsedSdp: SessionDescription): SessionDescription {
+    mungeOpus(
+            parsedSdp: SessionDescription,
+            audioQualitiesByMLine?: Array<IAudioQuality | undefined>
+    ): SessionDescription {
         const { audioQuality } = this.options;
+        const useMLineSpecificAudioQuality = Boolean(audioQualitiesByMLine?.length);
+        const hasRelevantGlobalAudioQuality
+            = Boolean(audioQuality?.enableOpusDtx || audioQuality?.stereo || audioQuality?.opusMaxAverageBitrate);
+        const hasRelevantMLineAudioQuality
+            = Boolean(audioQualitiesByMLine?.some(quality =>
+                quality?.enableOpusDtx || quality?.stereo || quality?.opusMaxAverageBitrate));
 
-        if (!audioQuality?.enableOpusDtx && !audioQuality?.stereo && !audioQuality?.opusMaxAverageBitrate) {
+        if (!hasRelevantGlobalAudioQuality && !hasRelevantMLineAudioQuality) {
             return parsedSdp;
         }
 
         const mungedSdp = parsedSdp;
         const mLines = mungedSdp.media.filter(m => m.type === MediaType.AUDIO);
 
-        for (const mLine of mLines) {
+        mLines.forEach((mLine, index) => {
+            const effectiveAudioQuality = useMLineSpecificAudioQuality
+                ? audioQualitiesByMLine[index]
+                : audioQuality;
+
+            if (!effectiveAudioQuality?.enableOpusDtx
+                    && !effectiveAudioQuality?.stereo
+                    && !effectiveAudioQuality?.opusMaxAverageBitrate) {
+                return;
+            }
+
             const { payload } = mLine.rtp.find(protocol => protocol.codec === CodecMimeType.OPUS);
 
             if (!payload) {
-                // eslint-disable-next-line no-continue
-                continue;
+                return;
             }
 
             let fmtpOpus = mLine.fmtp.find(protocol => protocol.payload === payload);
@@ -861,25 +879,25 @@ export class TPCUtils {
             const fmtpConfig = transform.parseParams(fmtpOpus.config);
             let sdpChanged = false;
 
-            if (audioQuality?.stereo) {
+            if (effectiveAudioQuality?.stereo) {
                 fmtpConfig.stereo = 1;
+                fmtpConfig['sprop-stereo'] = 1;
                 sdpChanged = true;
             }
 
-            if (audioQuality?.opusMaxAverageBitrate) {
-                fmtpConfig.maxaveragebitrate = audioQuality.opusMaxAverageBitrate;
+            if (effectiveAudioQuality?.opusMaxAverageBitrate) {
+                fmtpConfig.maxaveragebitrate = effectiveAudioQuality.opusMaxAverageBitrate;
                 sdpChanged = true;
             }
 
             // On Firefox, the OpusDtx enablement has no effect
-            if (!browser.isFirefox() && audioQuality?.enableOpusDtx) {
+            if (!browser.isFirefox() && effectiveAudioQuality?.enableOpusDtx) {
                 fmtpConfig.usedtx = 1;
                 sdpChanged = true;
             }
 
             if (!sdpChanged) {
-                // eslint-disable-next-line no-continue
-                continue;
+                return;
             }
 
             let mungedConfig = '';
@@ -889,7 +907,7 @@ export class TPCUtils {
             }
 
             fmtpOpus.config = mungedConfig.trim();
-        }
+        });
 
         return mungedSdp;
     }

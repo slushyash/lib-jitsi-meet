@@ -1,4 +1,6 @@
 /* eslint-disable max-len */
+import transform from 'sdp-transform';
+
 import { CodecMimeType } from '../../service/RTC/CodecMimeType';
 import { MediaType } from '../../service/RTC/MediaType';
 import { SIM_LAYERS } from '../../service/RTC/StandardVideoQualitySettings';
@@ -11,6 +13,82 @@ import { TPCUtils } from './TPCUtils';
 // Fixme: import types from TPCUtil after merge
 
 describe('TPCUtils', () => {
+    describe('mungeOpus()', () => {
+        let pc, tpcUtils;
+
+        beforeEach(() => {
+            pc = new MockPeerConnection('1', true, false);
+            tpcUtils = new TPCUtils(pc);
+        });
+
+        afterEach(() => {
+            pc = null;
+            tpcUtils = null;
+        });
+
+        it('applies stereo only to the audio share m-line', () => {
+            const mungedSdp = tpcUtils.mungeOpus(
+                transform.parse(createAudioOnlySdp()),
+                [
+                    { opusMaxAverageBitrate: 32000 },
+                    { opusMaxAverageBitrate: 192000, stereo: true }
+                ]);
+            const [ micAudio, sharedAudio ] = mungedSdp.media.filter(mLine => mLine.type === MediaType.AUDIO);
+            const micConfig = transform.parseParams(micAudio.fmtp.find(protocol => protocol.payload === 111).config);
+            const sharedConfig = transform.parseParams(sharedAudio.fmtp.find(protocol => protocol.payload === 111).config);
+
+            expect(micConfig.stereo).toBeUndefined();
+            expect(micConfig['sprop-stereo']).toBeUndefined();
+            expect(String(micConfig.maxaveragebitrate)).toBe('32000');
+            expect(String(sharedConfig.stereo)).toBe('1');
+            expect(String(sharedConfig['sprop-stereo'])).toBe('1');
+            expect(String(sharedConfig.maxaveragebitrate)).toBe('192000');
+        });
+
+        it('targets the configured m-line instead of assuming audio share order', () => {
+            const mungedSdp = tpcUtils.mungeOpus(
+                transform.parse(createAudioOnlySdp()),
+                [
+                    { opusMaxAverageBitrate: 192000, stereo: true },
+                    { opusMaxAverageBitrate: 32000 }
+                ]);
+            const [ firstAudio, secondAudio ] = mungedSdp.media.filter(mLine => mLine.type === MediaType.AUDIO);
+            const firstConfig = transform.parseParams(firstAudio.fmtp.find(protocol => protocol.payload === 111).config);
+            const secondConfig = transform.parseParams(secondAudio.fmtp.find(protocol => protocol.payload === 111).config);
+
+            expect(String(firstConfig.stereo)).toBe('1');
+            expect(String(firstConfig['sprop-stereo'])).toBe('1');
+            expect(String(firstConfig.maxaveragebitrate)).toBe('192000');
+            expect(secondConfig.stereo).toBeUndefined();
+            expect(secondConfig['sprop-stereo']).toBeUndefined();
+            expect(String(secondConfig.maxaveragebitrate)).toBe('32000');
+        });
+
+        function createAudioOnlySdp() {
+            return [
+                'v=0',
+                'o=- 0 0 IN IP4 127.0.0.1',
+                's=-',
+                't=0 0',
+                'a=group:BUNDLE 0 1',
+                'm=audio 9 UDP/TLS/RTP/SAVPF 111 126',
+                'c=IN IP4 0.0.0.0',
+                'a=rtpmap:111 opus/48000/2',
+                'a=rtpmap:126 telephone-event/8000',
+                'a=fmtp:111 minptime=10;useinbandfec=1',
+                'a=mid:0',
+                'a=sendrecv',
+                'm=audio 9 UDP/TLS/RTP/SAVPF 111 126',
+                'c=IN IP4 0.0.0.0',
+                'a=rtpmap:111 opus/48000/2',
+                'a=rtpmap:126 telephone-event/8000',
+                'a=fmtp:111 minptime=10;useinbandfec=1',
+                'a=mid:1',
+                'a=sendrecv'
+            ].join('\r\n');
+        }
+    });
+
     describe('ensureCorrectOrderOfSsrcs()', () => {
         const commonSdpLines = [
             'v=0',

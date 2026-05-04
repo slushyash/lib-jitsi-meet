@@ -196,6 +196,100 @@ export default class JingleSessionPC extends JingleSession {
     failICE: boolean;
 
     /**
+     * Returns the local tracks that can be added while accepting an incoming offer.
+     *
+     * Answers cannot create extra m-lines beyond the incoming offer. Secondary local tracks are added after the
+     * session is accepted, when this side can initiate a source-add negotiation.
+     *
+     * @param {JitsiLocalTrack[]} localTracks - Local tracks available on the conference.
+     * @returns {JitsiLocalTrack[]}
+     */
+    private static _getInitialOfferAnswerTracks(localTracks: JitsiLocalTrack[]): JitsiLocalTrack[] {
+        const seenPrimaryTypes = new Set<MediaType>();
+        const tracks: JitsiLocalTrack[] = [];
+
+        for (const track of localTracks) {
+            const mediaType = track.getType();
+
+            if ([ MediaType.AUDIO, MediaType.VIDEO ].includes(mediaType) && !seenPrimaryTypes.has(mediaType)) {
+                seenPrimaryTypes.add(mediaType);
+                tracks.push(track);
+            }
+        }
+
+        return tracks;
+    }
+
+    /**
+     * Returns secondary local tracks that should be source-added after session accept.
+     *
+     * @param {JitsiLocalTrack[]} localTracks - Local tracks available on the conference.
+     * @returns {JitsiLocalTrack[]}
+     */
+    private static _getSecondaryTracksForSourceAdd(localTracks: JitsiLocalTrack[]): JitsiLocalTrack[] {
+        const seenPrimaryTypes = new Set<MediaType>();
+        const tracks: JitsiLocalTrack[] = [];
+
+        for (const track of localTracks) {
+            const mediaType = track.getType();
+
+            if (![ MediaType.AUDIO, MediaType.VIDEO ].includes(mediaType)) {
+                continue;
+            }
+
+            if (seenPrimaryTypes.has(mediaType)) {
+                tracks.push(track);
+            } else {
+                seenPrimaryTypes.add(mediaType);
+            }
+        }
+
+        return tracks;
+    }
+
+    /**
+     * Returns the media types that need a new m-line when adding secondary local tracks.
+     *
+     * @param {JitsiLocalTrack[]} localTracks - Secondary local tracks being added.
+     * @param {boolean} isP2P - Whether this is a p2p session.
+     * @param {RTCRtpTransceiver[]} transceivers - The current peerconnection transceivers.
+     * @returns {MediaType[]}
+     */
+    private static _getMlineMediaTypesForLocalSourceAdd(
+            localTracks: JitsiLocalTrack[],
+            isP2P: boolean,
+            transceivers: RTCRtpTransceiver[]): MediaType[] {
+        const reusableTransceiverCounts = new Map<MediaType, number>();
+
+        if (isP2P) {
+            for (const transceiver of transceivers) {
+                const mediaType = transceiver.receiver?.track?.kind as MediaType;
+
+                if ([ MediaType.AUDIO, MediaType.VIDEO ].includes(mediaType)
+                        && transceiver.direction === MediaDirection.RECVONLY
+                        && transceiver.currentDirection === MediaDirection.RECVONLY) {
+                    reusableTransceiverCounts.set(mediaType, (reusableTransceiverCounts.get(mediaType) ?? 0) + 1);
+                }
+            }
+        }
+
+        const mediaTypes: MediaType[] = [];
+
+        for (const track of localTracks) {
+            const mediaType = track.getType();
+            const reusableTransceiverCount = reusableTransceiverCounts.get(mediaType) ?? 0;
+
+            if (reusableTransceiverCount) {
+                reusableTransceiverCounts.set(mediaType, reusableTransceiverCount - 1);
+            } else {
+                mediaTypes.push(mediaType);
+            }
+        }
+
+        return mediaTypes;
+    }
+
+    /**
      * Parses 'senders' attribute of the video content.
      * @param {Element} jingleContents
      * @return {Nullable<string>} one of the values of content "senders" attribute
@@ -1245,16 +1339,8 @@ export default class JingleSessionPC extends JingleSession {
         logger.debug(`${this} Executing setOfferAnswerCycle task`);
 
         const addTracks = [];
-        const audioTracks = localTracks.filter(track => track.getType() === MediaType.AUDIO);
-        const videoTracks = localTracks.filter(track => track.getType() === MediaType.VIDEO);
-        let tracks = localTracks;
+        const tracks = JingleSessionPC._getInitialOfferAnswerTracks(localTracks);
 
-        // Add only 1 video track at a time. Adding 2 or more video tracks to the peerconnection at the same time
-        // makes the browser go into a renegotiation loop by firing 'negotiationneeded' event after every
-        // renegotiation.
-        if (videoTracks.length > 1) {
-            tracks = [ ...audioTracks, videoTracks[0] ];
-        }
         for (const track of tracks) {
             addTracks.push(this.peerconnection.addTrack(track, this.isInitiator));
         }
@@ -1329,15 +1415,14 @@ export default class JingleSessionPC extends JingleSession {
                     success();
                     this.room.eventEmitter.emit(XMPPEvents.SESSION_ACCEPT, this);
 
-                    // The first video track is added to the peerconnection and signaled as part of the session-accept.
-                    // Add secondary video tracks (that were already added to conference) to the peerconnection here.
-                    // This will happen when someone shares a secondary source to a two people call, the other user
-                    // leaves and joins the call again, a new peerconnection is created for p2p/jvb connection. At this
-                    // point, there are 2 video tracks which need to be signaled to the remote peer.
-                    const videoTracks = localTracks.filter(track => track.getType() === MediaType.VIDEO);
+                    // The first track of each media type is added to the peerconnection and signaled as part of the
+                    // session-accept. Add secondary tracks after session establishment so this side can negotiate the
+                    // extra m-lines required for additional local sources.
+                    const secondaryTracks = JingleSessionPC._getSecondaryTracksForSourceAdd(localTracks);
 
-                    videoTracks.length && videoTracks.splice(0, 1);
-                    videoTracks.length && this.addTracks(videoTracks);
+                    secondaryTracks.length && this.addTracks(secondaryTracks).catch(error => {
+                        logger.error(`${this} failed to add secondary tracks after session-accept`, error);
+                    });
                 },
                 error => {
                     failure(error);
@@ -1429,24 +1514,21 @@ export default class JingleSessionPC extends JingleSession {
      */
     public addTracks(localTracks: Nullable<JitsiLocalTrack[]> = null): Promise<void> {
         if (!localTracks?.length) {
-            Promise.reject(new Error('No tracks passed'));
+            return Promise.reject(new Error('No tracks passed'));
         }
 
         const replaceTracks = [];
         const workFunction = finishedCallback => {
             const remoteSdp = new SDP(this.peerconnection.remoteDescription.sdp, this.isP2P);
-            const recvOnlyTransceiver = this.peerconnection.peerconnection.getTransceivers()
-                    .find(t => t.receiver.track.kind === MediaType.VIDEO
-                        && t.direction === MediaDirection.RECVONLY
-                        && t.currentDirection === MediaDirection.RECVONLY);
+            const mlineMediaTypes = JingleSessionPC._getMlineMediaTypesForLocalSourceAdd(
+                localTracks,
+                this.isP2P,
+                this.peerconnection.peerconnection.getTransceivers());
 
-            // Add transceivers by adding a new mline in the remote description for each track. Do not create a new
-            // m-line if a recv-only transceiver exists in the p2p case. The new track will be attached to the
-            // existing one in that case.
-            for (const track of localTracks) {
-                if (!this.isP2P || !recvOnlyTransceiver) {
-                    remoteSdp.addMlineForNewSource(track.getType());
-                }
+            // Add transceivers by adding a new mline in the remote description for each track. For p2p, an existing
+            // recv-only transceiver can be reused only by a track of the same media type.
+            for (const mediaType of mlineMediaTypes) {
+                remoteSdp.addMlineForNewSource(mediaType);
             }
 
             this._renegotiate(remoteSdp.raw)

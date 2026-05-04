@@ -18,6 +18,12 @@ function getSsrcLines(desc, mediaType) {
     return mline.ssrcs ?? [];
 }
 
+function getSsrcLinesForMid(desc, mid) {
+    const mline = desc.media.find(m => m.mid?.toString() === mid);
+
+    return mline?.ssrcs ?? [];
+}
+
 describe('TransformSdpsForUnifiedPlan', () => {
     let localSdpMunger;
     const tpc = new MockPeerConnection('1', true, false);
@@ -162,5 +168,73 @@ describe('Transform msids for source-name signaling', () => {
 
         expect(audioMsid).toBe('sRdpsdg-audio-0-1');
         expect(videoMsid).toBe('sRdpsdg-video-0-1');
+    });
+});
+
+describe('Transform multiple audio m-lines for source-name signaling', () => {
+    const tpc = new MockPeerConnection('1', false, false);
+    const localSdpMunger = new LocalSdpMunger(tpc as any, 'sRdpsdg');
+
+    it('injects source names and msids for every local audio m-line', () => {
+        const desc = new RTCSessionDescription({
+            type: 'offer',
+            sdp: [
+                'v=0',
+                'o=- 0 0 IN IP4 127.0.0.1',
+                's=-',
+                't=0 0',
+                'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+                'c=IN IP4 0.0.0.0',
+                'a=mid:0',
+                'a=sendrecv',
+                'a=msid:- track-a0',
+                'a=ssrc:1001 cname:audio0',
+                'a=ssrc:1001 msid:- track-a0',
+                'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+                'c=IN IP4 0.0.0.0',
+                'a=mid:1',
+                'a=sendrecv',
+                'a=msid:- track-a1',
+                'a=ssrc:2002 cname:audio1',
+                'a=ssrc:2002 msid:- track-a1',
+                ''
+            ].join('\r\n')
+        });
+        const ssrcMap = new Map();
+
+        ssrcMap.set('sRdpsdg-a0', {
+            ssrcs: [ 1001 ],
+            msid: 'sRdpsdg-audio-0'
+        });
+        ssrcMap.set('sRdpsdg-a1', {
+            ssrcs: [ 2002 ],
+            msid: 'sRdpsdg-audio-1'
+        });
+
+        const transformedDesc = localSdpMunger.transformStreamIdentifiers(desc, ssrcMap);
+        const newSdp = transform.parse(transformedDesc.sdp);
+        const firstAudioSsrcs = getSsrcLinesForMid(newSdp, '0');
+        const secondAudioSsrcs = getSsrcLinesForMid(newSdp, '1');
+
+        expect(firstAudioSsrcs).toContain(jasmine.objectContaining({
+            attribute: 'name',
+            id: 1001,
+            value: 'sRdpsdg-a0'
+        }));
+        expect(secondAudioSsrcs).toContain(jasmine.objectContaining({
+            attribute: 'name',
+            id: 2002,
+            value: 'sRdpsdg-a1'
+        }));
+        expect(firstAudioSsrcs).toContain(jasmine.objectContaining({
+            attribute: 'msid',
+            id: 1001,
+            value: 'sRdpsdg-audio-0-1 track-a0-1'
+        }));
+        expect(secondAudioSsrcs).toContain(jasmine.objectContaining({
+            attribute: 'msid',
+            id: 2002,
+            value: 'sRdpsdg-audio-1-1 track-a1-1'
+        }));
     });
 });

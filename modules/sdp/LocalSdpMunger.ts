@@ -147,10 +147,12 @@ export default class LocalSdpMunger {
         }
 
         const transformer = new SdpTransformWrap(sessionDesc.sdp);
-        const audioMLine = transformer.selectMedia(MediaType.AUDIO)?.[0];
+        const audioMlines = transformer.selectMedia(MediaType.AUDIO);
 
-        if (audioMLine) {
-            this._transformMediaIdentifiers(audioMLine, ssrcMap);
+        if (audioMlines && Array.isArray(audioMlines)) {
+            for (const audioMLine of audioMlines) {
+                this._transformMediaIdentifiers(audioMLine, ssrcMap);
+            }
         }
 
         const videoMlines = transformer.selectMedia(MediaType.VIDEO);

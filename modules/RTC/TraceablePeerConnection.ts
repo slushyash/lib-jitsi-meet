@@ -1790,11 +1790,26 @@ export default class TraceablePeerConnection {
 
         for (const localTrack of this.localTracks.values()) {
             const sourceName = localTrack.getSourceName();
-            const trackIndex = getSourceIndexFromSourceName(sourceName);
             const mediaType = localTrack.getType();
+
+            if (!sourceName) {
+                logger.warn(`${this} skipping SSRC extraction for track=${localTrack.rtcId} because it has no source name`);
+                continue;
+            }
+
+            const trackIndex = getSourceIndexFromSourceName(sourceName);
             const mLines = media.filter(m => m.type === mediaType);
-            const ssrcGroups = mLines[trackIndex].ssrcGroups;
-            let ssrcs = mLines[trackIndex].ssrcs;
+            const mLine = mLines[trackIndex];
+
+            if (!mLine) {
+                logger.warn(
+                    `${this} skipping SSRC extraction for source=${sourceName} because `
+                    + `no ${mediaType} m-line exists at index=${trackIndex}; available=${mLines.length}`);
+                continue;
+            }
+
+            const ssrcGroups = mLine.ssrcGroups;
+            let ssrcs = mLine.ssrcs;
 
             if (ssrcs?.length) {
                 // Filter the ssrcs with 'cname' attribute.
@@ -2211,8 +2226,20 @@ export default class TraceablePeerConnection {
             const mLines = parsedSdp.media.filter(mline => mline.type === mediaType);
 
             tracks.forEach((track, idx) => {
+                const sourceName = track.getSourceName();
+                const mLineIndex = sourceName ? getSourceIndexFromSourceName(sourceName) : idx;
+                const mLine = mLines[mLineIndex];
+
+                if (!mLine) {
+                    logger.warn(
+                        `${this} skipping transceiver mid cache for track=${track.rtcId} because `
+                        + `no ${mediaType} m-line exists at index=${mLineIndex}; available=${mLines.length}`);
+
+                    return;
+                }
+
                 if (!this.localTrackTransceiverMids.has(track.rtcId)) {
-                    this.localTrackTransceiverMids.set(track.rtcId, mLines[idx].mid.toString());
+                    this.localTrackTransceiverMids.set(track.rtcId, mLine.mid.toString());
                 }
             });
         });

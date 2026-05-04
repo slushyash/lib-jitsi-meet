@@ -1,3 +1,5 @@
+import { MediaType } from '../../service/RTC/MediaType';
+import { MediaDirection } from '../../service/RTC/MediaDirection';
 import { MockRTC } from '../RTC/MockClasses';
 import { parseXML, findAll, findFirst } from '../util/XMLUtils';
 
@@ -56,6 +58,81 @@ describe('JingleSessionPC', () => {
 
         // eslint-disable-next-line no-empty-function
         // connection.connect('jid', undefined, () => { }); */
+    });
+
+    describe('local track staging for incoming offers', () => {
+        const createTrack = (id: string, mediaType: MediaType) => ({
+            getType: () => mediaType,
+            id
+        });
+
+        it('answers with only the first local track of each media type', () => {
+            const audio0 = createTrack('audio0', MediaType.AUDIO);
+            const audio1 = createTrack('audio1', MediaType.AUDIO);
+            const video0 = createTrack('video0', MediaType.VIDEO);
+            const video1 = createTrack('video1', MediaType.VIDEO);
+
+            expect((JingleSessionPC as any)._getInitialOfferAnswerTracks([
+                audio0,
+                audio1,
+                video0,
+                video1
+            ])).toEqual([ audio0, video0 ]);
+        });
+
+        it('source-adds secondary local audio and video tracks after session accept', () => {
+            const audio0 = createTrack('audio0', MediaType.AUDIO);
+            const video0 = createTrack('video0', MediaType.VIDEO);
+            const audio1 = createTrack('audio1', MediaType.AUDIO);
+            const video1 = createTrack('video1', MediaType.VIDEO);
+
+            expect((JingleSessionPC as any)._getSecondaryTracksForSourceAdd([
+                audio0,
+                video0,
+                audio1,
+                video1
+            ])).toEqual([ audio1, video1 ]);
+        });
+
+        it('adds an audio m-line when p2p can only reuse a video transceiver', () => {
+            const audio1 = createTrack('audio1', MediaType.AUDIO);
+            const video1 = createTrack('video1', MediaType.VIDEO);
+            const recvOnlyVideoTransceiver = {
+                currentDirection: MediaDirection.RECVONLY,
+                direction: MediaDirection.RECVONLY,
+                receiver: {
+                    track: {
+                        kind: MediaType.VIDEO
+                    }
+                }
+            };
+
+            expect((JingleSessionPC as any)._getMlineMediaTypesForLocalSourceAdd(
+                [ audio1, video1 ],
+                true,
+                [ recvOnlyVideoTransceiver ]
+            )).toEqual([ MediaType.AUDIO ]);
+        });
+
+        it('reuses p2p recv-only transceivers only once per matching media type', () => {
+            const audio1 = createTrack('audio1', MediaType.AUDIO);
+            const audio2 = createTrack('audio2', MediaType.AUDIO);
+            const recvOnlyAudioTransceiver = {
+                currentDirection: MediaDirection.RECVONLY,
+                direction: MediaDirection.RECVONLY,
+                receiver: {
+                    track: {
+                        kind: MediaType.AUDIO
+                    }
+                }
+            };
+
+            expect((JingleSessionPC as any)._getMlineMediaTypesForLocalSourceAdd(
+                [ audio1, audio2 ],
+                true,
+                [ recvOnlyAudioTransceiver ]
+            )).toEqual([ MediaType.AUDIO ]);
+        });
     });
 
     describe('send/receive video constraints w/ source-name', () => {
